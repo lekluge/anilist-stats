@@ -2,8 +2,7 @@
 import { api } from "~/composables/useApi";
 import { normalizeAnilist } from "~/utils/normalizeAnilist";
 import type { AnimeEntry } from "~/types/anime";
-import GenreCard from '../components/GenreCard.vue'
-
+import GenreCard from "../components/GenreCard.vue";
 
 /* -----------------------------
  * ECharts setup (WICHTIG)
@@ -27,10 +26,10 @@ use([
   GridComponent,
 ]);
 type GenreCover = {
-  id: number
-  title: string
-  cover: string
-}
+  id: number;
+  title: string;
+  cover: string;
+};
 /* -----------------------------
  * State
  * ----------------------------- */
@@ -250,7 +249,6 @@ watchEffect(() => {
     ],
   };
 });
-
 </script>
 
 <template>
@@ -260,7 +258,7 @@ watchEffect(() => {
       class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
     >
       <h1 class="text-3xl font-bold">Dashboard</h1>
-    
+
       <div class="flex gap-2">
         <input
           v-model="username"
@@ -339,10 +337,8 @@ watchEffect(() => {
         </ClientOnly>
       </div>
       <div
-  class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3
-         sm:col-span-8 lg:col-span-4"
->
- </div>
+        class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 sm:col-span-8 lg:col-span-4"
+      ></div>
     </div>
   </div>
 </template>

@@ -35,9 +35,7 @@ async function loadAnime() {
     const res = await api.post("/api/anilist", null, {
       params: { user: username.value },
     });
-    entries.value = normalizeAnilist(
-      res.data.data.MediaListCollection.lists
-    );
+    entries.value = normalizeAnilist(res.data.data.MediaListCollection.lists);
   } catch (e: any) {
     error.value = e?.message ?? "Unbekannter Fehler";
   } finally {
@@ -115,10 +113,7 @@ const normalGenreStats = computed(() => {
         if (cover) {
           map[genre].covers.push({
             id: e.id,
-            title:
-              e.title?.english ??
-              e.title?.romaji ??
-              "Unknown title",
+            title: e.title?.english ?? e.title?.romaji ?? "Unknown title",
             cover,
           });
         }
@@ -129,9 +124,7 @@ const normalGenreStats = computed(() => {
   return Object.entries(map).map(([genre, g]) => ({
     genre,
     count: g.count,
-    meanScore: g.scoreCount
-      ? Math.round(g.scoreSum / g.scoreCount)
-      : 0,
+    meanScore: g.scoreCount ? Math.round(g.scoreSum / g.scoreCount) : 0,
     minutesWatched: g.minutes,
     covers: g.covers,
   }));
@@ -164,10 +157,7 @@ const combinedStats = computed(() => {
       if (cover) {
         covers.push({
           id: e.id,
-          title:
-            e.title?.english ??
-            e.title?.romaji ??
-            "Unknown title",
+          title: e.title?.english ?? e.title?.romaji ?? "Unknown title",
           cover,
         });
       }
@@ -177,9 +167,7 @@ const combinedStats = computed(() => {
   return {
     genre: selectedGenres.value.join(" + "),
     count: filteredEntries.value.length,
-    meanScore: scoreCount
-      ? Math.round(scoreSum / scoreCount)
-      : 0,
+    meanScore: scoreCount ? Math.round(scoreSum / scoreCount) : 0,
     minutesWatched: minutes,
     covers,
   };
@@ -213,9 +201,7 @@ const listSummary = computed(() => {
       ? selectedGenres.value.join(" + ")
       : "Alle Anime",
     count: filteredEntries.value.length,
-    meanScore: scoreCount
-      ? Math.round(scoreSum / scoreCount)
-      : 0,
+    meanScore: scoreCount ? Math.round(scoreSum / scoreCount) : 0,
     hours: Math.round(minutes / 60),
   };
 });
@@ -225,9 +211,7 @@ const listAnime = computed(() =>
     id: e.id,
     title: e.title?.english ?? e.title?.romaji ?? "Unknown",
     cover:
-      typeof e.coverImage === "string"
-        ? e.coverImage
-        : e.coverImage?.medium,
+      typeof e.coverImage === "string" ? e.coverImage : e.coverImage?.medium,
     score: e.score,
     progress: e.progress,
   }))
@@ -242,6 +226,9 @@ function toggleGenre(genre: string) {
     ? selectedGenres.value.push(genre)
     : selectedGenres.value.splice(i, 1);
 }
+function anilistUrl(id: number) {
+  return `https://anilist.co/anime/${id}`;
+}
 </script>
 
 <template>
@@ -254,10 +241,7 @@ function toggleGenre(genre: string) {
           v-model="username"
           class="bg-zinc-900 border border-zinc-800 px-3 py-2 rounded"
         />
-        <button
-          @click="loadAnime"
-          class="bg-indigo-600 px-4 py-2 rounded"
-        >
+        <button @click="loadAnime" class="bg-indigo-600 px-4 py-2 rounded">
           Laden
         </button>
       </div>
@@ -268,18 +252,22 @@ function toggleGenre(genre: string) {
       <button
         @click="layoutMode = 'grid'"
         class="px-3 py-1 text-xs rounded border"
-        :class="layoutMode === 'grid'
-          ? 'bg-indigo-600 text-white'
-          : 'bg-zinc-900 text-zinc-300'"
+        :class="
+          layoutMode === 'grid'
+            ? 'bg-indigo-600 text-white'
+            : 'bg-zinc-900 text-zinc-300'
+        "
       >
         Grid
       </button>
       <button
         @click="layoutMode = 'list'"
         class="px-3 py-1 text-xs rounded border"
-        :class="layoutMode === 'list'
-          ? 'bg-indigo-600 text-white'
-          : 'bg-zinc-900 text-zinc-300'"
+        :class="
+          layoutMode === 'list'
+            ? 'bg-indigo-600 text-white'
+            : 'bg-zinc-900 text-zinc-300'
+        "
       >
         List
       </button>
@@ -292,9 +280,11 @@ function toggleGenre(genre: string) {
         :key="g"
         @click="toggleGenre(g)"
         class="px-3 py-1 rounded-full text-xs border"
-        :class="selectedGenres.includes(g)
-          ? 'bg-indigo-600 text-white'
-          : 'bg-zinc-900 text-zinc-300'"
+        :class="
+          selectedGenres.includes(g)
+            ? 'bg-indigo-600 text-white'
+            : 'bg-zinc-900 text-zinc-300'
+        "
       >
         {{ g }}
       </button>
@@ -342,19 +332,21 @@ function toggleGenre(genre: string) {
       <div
         v-for="a in listAnime"
         :key="a.id"
-        class="flex gap-4 items-center
-               p-3 rounded-xl
-               border border-zinc-800
-               bg-zinc-900/30"
+        class="flex gap-4 items-center p-3 rounded-xl border border-zinc-800 bg-zinc-900/30"
       >
         <img
           v-if="a.cover"
           :src="a.cover"
           class="h-14 aspect-2/3 rounded object-cover"
         />
-        <div class="flex-1 truncate">
+        <a
+          :href="anilistUrl(a.id)"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="flex-1 truncate hover:underline hover:text-indigo-400 cursor-pointer"
+        >
           {{ a.title }}
-        </div>
+        </a>
         <div class="text-xs text-zinc-400">
           {{ a.score || "—" }}
         </div>

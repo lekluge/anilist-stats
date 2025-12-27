@@ -69,9 +69,7 @@ async function loadUsers() {
 
     const map: Record<string, AnimeEntry[]> = {};
     users.value.forEach((u, i) => {
-      map[u] = normalizeAnilist(
-        results[i].data.data.MediaListCollection.lists
-      );
+      map[u] = normalizeAnilist(results[i].data.data.MediaListCollection.lists);
     });
 
     entriesByUser.value = map;
@@ -143,8 +141,10 @@ const filteredAnime = computed(() => {
   });
 });
 
-
 const animeCount = computed(() => filteredAnime.value.length);
+function anilistUrl(id: number) {
+  return `https://anilist.co/anime/${id}`;
+}
 </script>
 
 <template>
@@ -175,9 +175,7 @@ const animeCount = computed(() => filteredAnime.value.length);
         <div
           v-for="u in users"
           :key="u"
-          class="flex items-center gap-2 px-3 py-1
-                 rounded-full text-xs
-                 bg-zinc-800 border border-zinc-700"
+          class="flex items-center gap-2 px-3 py-1 rounded-full text-xs bg-zinc-800 border border-zinc-700"
         >
           {{ u }}
           <button
@@ -200,7 +198,7 @@ const animeCount = computed(() => filteredAnime.value.length);
     <!-- Seen Filter -->
     <div class="flex gap-2">
       <button
-        v-for="f in ['all','any','allUsers']"
+        v-for="f in ['all', 'any', 'allUsers']"
         :key="f"
         @click="seenFilter = f as any"
         class="px-3 py-1 text-xs rounded border transition"
@@ -211,19 +209,13 @@ const animeCount = computed(() => filteredAnime.value.length);
         "
       >
         {{
-          f === 'all'
-            ? 'Alle'
-            : f === 'any'
-            ? 'Mind. ein User'
-            : 'Alle User'
+          f === "all" ? "Alle" : f === "any" ? "Mind. ein User" : "Alle User"
         }}
       </button>
     </div>
 
     <!-- Summary -->
-    <div class="text-sm text-zinc-400">
-      {{ animeCount }} Anime gefunden
-    </div>
+    <div class="text-sm text-zinc-400">{{ animeCount }} Anime gefunden</div>
 
     <!-- States -->
     <div v-if="loading" class="text-zinc-400">Lade Daten…</div>
@@ -234,7 +226,9 @@ const animeCount = computed(() => filteredAnime.value.length);
       <!-- Header -->
       <div
         class="grid gap-4 px-3 text-xs text-zinc-400"
-        :style="{ gridTemplateColumns: `48px 1fr repeat(${users.length}, 1fr)` }"
+        :style="{
+          gridTemplateColumns: `48px 1fr repeat(${users.length}, 1fr)`,
+        }"
       >
         <div></div>
         <div>Anime</div>
@@ -245,9 +239,10 @@ const animeCount = computed(() => filteredAnime.value.length);
       <div
         v-for="a in filteredAnime"
         :key="a.id"
-        class="grid gap-4 items-center p-3 rounded-xl
-               border border-zinc-800 bg-zinc-900/40"
-        :style="{ gridTemplateColumns: `48px 1fr repeat(${users.length}, 1fr)` }"
+        class="grid gap-4 items-center p-3 rounded-xl border border-zinc-800 bg-zinc-900/40"
+        :style="{
+          gridTemplateColumns: `48px 1fr repeat(${users.length}, 1fr)`,
+        }"
       >
         <!-- Cover -->
         <img
@@ -258,7 +253,14 @@ const animeCount = computed(() => filteredAnime.value.length);
 
         <!-- Title -->
         <div class="truncate font-medium">
+          <a
+          :href="anilistUrl(a.id)"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="flex-1 truncate hover:underline hover:text-indigo-400 cursor-pointer"
+        >
           {{ a.title }}
+        </a>
           <div
             v-if="a.titleEn && a.titleRo && a.titleEn !== a.titleRo"
             class="text-xs text-zinc-500"
@@ -268,11 +270,7 @@ const animeCount = computed(() => filteredAnime.value.length);
         </div>
 
         <!-- User Columns -->
-        <div
-          v-for="u in users"
-          :key="u"
-          class="text-sm"
-        >
+        <div v-for="u in users" :key="u" class="text-sm">
           <template v-if="a.users[u]">
             <div
               v-if="a.users[u].status === 'COMPLETED'"

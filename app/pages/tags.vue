@@ -35,9 +35,7 @@ async function loadAnime() {
     const res = await api.post("/api/anilist", null, {
       params: { user: username.value },
     });
-    entries.value = normalizeAnilist(
-      res.data.data.MediaListCollection.lists
-    );
+    entries.value = normalizeAnilist(res.data.data.MediaListCollection.lists);
   } catch (e: any) {
     error.value = e?.message ?? "Unbekannter Fehler";
   } finally {
@@ -54,9 +52,7 @@ const selectedTags = ref<string[]>([]);
 
 const allTags = computed(() => {
   const set = new Set<string>();
-  entries.value.forEach((e) =>
-    e.tags?.forEach((t) => set.add(t.name))
-  );
+  entries.value.forEach((e) => e.tags?.forEach((t) => set.add(t.name)));
   return [...set].sort();
 });
 
@@ -64,9 +60,7 @@ const filteredEntries = computed(() => {
   if (!selectedTags.value.length) return entries.value;
 
   return entries.value.filter((e) =>
-    selectedTags.value.every((t) =>
-      e.tags?.some((et) => et.name === t)
-    )
+    selectedTags.value.every((t) => e.tags?.some((et) => et.name === t))
   );
 });
 
@@ -122,10 +116,7 @@ const normalTagStats = computed(() => {
         if (cover) {
           map[tagName].covers.push({
             id: e.id,
-            title:
-              e.title?.english ??
-              e.title?.romaji ??
-              "Unknown title",
+            title: e.title?.english ?? e.title?.romaji ?? "Unknown title",
             cover,
           });
         }
@@ -136,9 +127,7 @@ const normalTagStats = computed(() => {
   return Object.entries(map).map(([tag, t]) => ({
     genre: tag, // 👈 bewusst "genre", damit GenreCard wiederverwendet wird
     count: t.count,
-    meanScore: t.scoreCount
-      ? Math.round(t.scoreSum / t.scoreCount)
-      : 0,
+    meanScore: t.scoreCount ? Math.round(t.scoreSum / t.scoreCount) : 0,
     minutesWatched: t.minutes,
     covers: t.covers,
   }));
@@ -174,10 +163,7 @@ const combinedStats = computed(() => {
       if (cover) {
         covers.push({
           id: e.id,
-          title:
-            e.title?.english ??
-            e.title?.romaji ??
-            "Unknown title",
+          title: e.title?.english ?? e.title?.romaji ?? "Unknown title",
           cover,
         });
       }
@@ -187,9 +173,7 @@ const combinedStats = computed(() => {
   return {
     genre: selectedTags.value.join(" + "),
     count: filteredEntries.value.length,
-    meanScore: scoreCount
-      ? Math.round(scoreSum / scoreCount)
-      : 0,
+    meanScore: scoreCount ? Math.round(scoreSum / scoreCount) : 0,
     minutesWatched: minutes,
     covers,
   };
@@ -223,29 +207,22 @@ const listSummary = computed(() => {
       ? selectedTags.value.join(" + ")
       : "Alle Tags",
     count: filteredEntries.value.length,
-    meanScore: scoreCount
-      ? Math.round(scoreSum / scoreCount)
-      : 0,
+    meanScore: scoreCount ? Math.round(scoreSum / scoreCount) : 0,
     hours: Math.round(minutes / 60),
   };
 });
 
 const listAnime = computed(() =>
   filteredEntries.value.map((e) => {
-    const relevantTags =
-      selectedTags.value.length
-        ? e.tags?.filter((t) =>
-            selectedTags.value.includes(t.name)
-          ) ?? []
-        : [];
+    const relevantTags = selectedTags.value.length
+      ? e.tags?.filter((t) => selectedTags.value.includes(t.name)) ?? []
+      : [];
 
     return {
       id: e.id,
       title: e.title?.english ?? e.title?.romaji ?? "Unknown",
       cover:
-        typeof e.coverImage === "string"
-          ? e.coverImage
-          : e.coverImage?.medium,
+        typeof e.coverImage === "string" ? e.coverImage : e.coverImage?.medium,
       score: e.score,
 
       tagRanks: relevantTags.map((t) => ({
@@ -256,15 +233,15 @@ const listAnime = computed(() =>
   })
 );
 
-
 /* -----------------------------
  * Helpers
  * ----------------------------- */
 function toggleTag(tag: string) {
   const i = selectedTags.value.indexOf(tag);
-  i === -1
-    ? selectedTags.value.push(tag)
-    : selectedTags.value.splice(i, 1);
+  i === -1 ? selectedTags.value.push(tag) : selectedTags.value.splice(i, 1);
+}
+function anilistUrl(id: number) {
+  return `https://anilist.co/anime/${id}`;
 }
 </script>
 
@@ -278,10 +255,7 @@ function toggleTag(tag: string) {
           v-model="username"
           class="bg-zinc-900 border border-zinc-800 px-3 py-2 rounded"
         />
-        <button
-          @click="loadAnime"
-          class="bg-indigo-600 px-4 py-2 rounded"
-        >
+        <button @click="loadAnime" class="bg-indigo-600 px-4 py-2 rounded">
           Laden
         </button>
       </div>
@@ -292,18 +266,22 @@ function toggleTag(tag: string) {
       <button
         @click="layoutMode = 'grid'"
         class="px-3 py-1 text-xs rounded border"
-        :class="layoutMode === 'grid'
-          ? 'bg-indigo-600 text-white'
-          : 'bg-zinc-900 text-zinc-300'"
+        :class="
+          layoutMode === 'grid'
+            ? 'bg-indigo-600 text-white'
+            : 'bg-zinc-900 text-zinc-300'
+        "
       >
         Grid
       </button>
       <button
         @click="layoutMode = 'list'"
         class="px-3 py-1 text-xs rounded border"
-        :class="layoutMode === 'list'
-          ? 'bg-indigo-600 text-white'
-          : 'bg-zinc-900 text-zinc-300'"
+        :class="
+          layoutMode === 'list'
+            ? 'bg-indigo-600 text-white'
+            : 'bg-zinc-900 text-zinc-300'
+        "
       >
         List
       </button>
@@ -316,9 +294,11 @@ function toggleTag(tag: string) {
         :key="t"
         @click="toggleTag(t)"
         class="px-3 py-1 rounded-full text-xs border"
-        :class="selectedTags.includes(t)
-          ? 'bg-indigo-600 text-white'
-          : 'bg-zinc-900 text-zinc-300'"
+        :class="
+          selectedTags.includes(t)
+            ? 'bg-indigo-600 text-white'
+            : 'bg-zinc-900 text-zinc-300'
+        "
       >
         {{ t }}
       </button>
@@ -364,29 +344,31 @@ function toggleTag(tag: string) {
       <div
         v-for="a in listAnime"
         :key="a.id"
-        class="flex gap-4 items-center
-               p-3 rounded-xl
-               border border-zinc-800
-               bg-zinc-900/30"
+        class="flex gap-4 items-center p-3 rounded-xl border border-zinc-800 bg-zinc-900/30"
       >
         <img
           v-if="a.cover"
           :src="a.cover"
           class="h-14 aspect-2/3 rounded object-cover"
         />
-        <div class="flex-1 truncate">
+        <a
+          :href="anilistUrl(a.id)"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="flex-1 truncate hover:underline hover:text-indigo-400 cursor-pointer"
+        >
           {{ a.title }}
-        </div>
+        </a>
         <div class="flex flex-col items-end text-xs text-zinc-400">
-  <span>{{ a.score || "—" }}</span>
+          <span>{{ a.score || "—" }}</span>
 
-  <span v-if="a.tagRanks.length" class="text-zinc-500">
-    <template v-for="(t, i) in a.tagRanks" :key="t.name">
-      <span v-if="i > 0"> + </span>
-      {{ t.name }} {{ t.rank }}%
-    </template>
-  </span>
-</div>
+          <span v-if="a.tagRanks.length" class="text-zinc-500">
+            <template v-for="(t, i) in a.tagRanks" :key="t.name">
+              <span v-if="i > 0"> + </span>
+              {{ t.name }} {{ t.rank }}%
+            </template>
+          </span>
+        </div>
       </div>
     </div>
   </div>
