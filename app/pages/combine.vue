@@ -310,6 +310,7 @@ function anilistUrl(id: number) {
 
     <!-- Genre Filter -->
     <div class="flex flex-wrap gap-2">
+      <h2 class="w-full font-semibold">Genres:</h2>
       <button
         v-for="g in allGenres"
         :key="g"
@@ -327,6 +328,7 @@ function anilistUrl(id: number) {
 
     <!-- Tag Filter -->
     <div class="flex flex-wrap gap-2">
+      <h2 class="w-full font-semibold">Tags:</h2>
       <button
         v-for="t in allTags"
         :key="t"
