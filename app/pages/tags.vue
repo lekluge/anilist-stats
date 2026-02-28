@@ -2,73 +2,138 @@
 import { api } from "~/composables/useApi";
 import { normalizeAnilist } from "~/utils/normalizeAnilist";
 import type { AnimeEntry } from "~/types/anime";
-import GenreCard from "../components/GenreCard.vue";
+import GameCard from "../components/GameCard.vue";
+import { useRoute } from "vue-router";
 
-/* -----------------------------
- * Types
- * ----------------------------- */
-type TagCover = {
-  id: number;
-  title: string;
-  cover: string;
-};
+const { t } = useLocale();
+const route = useRoute();
 
+const pageSize = 50;
+const currentPage = ref(1);
+const totalPages = computed(() => Math.max(1, Math.ceil(listAnime.value.length / pageSize)));
+const paginatedListAnime = computed(() => {
+  const start = (currentPage.value - 1) * pageSize;
+  return listAnime.value.slice(start, start + pageSize);
+});
+
+type TagCover = { id: number; title: string; cover: string };
 type LayoutMode = "grid" | "list";
+type TagState = "include" | "exclude";
+type TagSortMode = "count" | "minutes" | "score";
 
-/* -----------------------------
- * State
- * ----------------------------- */
-const username = ref("Tiggy");
+const username = useAnilistUser();
 const loading = ref(false);
 const error = ref<string | null>(null);
 const entries = ref<AnimeEntry[]>([]);
 const layoutMode = ref<LayoutMode>("grid");
+const tagSortMode = ref<TagSortMode>("count");
 
-/* -----------------------------
- * API
- * ----------------------------- */
+definePageMeta({ title: "Tags", middleware: "auth" });
+
 async function loadAnime() {
   loading.value = true;
   error.value = null;
 
   try {
-    const res = await api.post("/api/anilist", null, {
+    if (!username.value) {
+      loading.value = false;
+      return;
+    }
+
+    const res = await api.post("/api/private/anilist", null, {
       params: { user: username.value },
     });
     entries.value = normalizeAnilist(res.data.data.MediaListCollection.lists);
-  } catch (e: any) {
-    error.value = e?.message ?? "Unbekannter Fehler";
+  } catch {
+    error.value = `${t("common.errorPrefix")}: ${t("tags.loadError")}`;
   } finally {
     loading.value = false;
   }
 }
 
-onMounted(loadAnime);
+onMounted(async () => {
+  if (username.value) {
+    await loadAnime();
+  }
+  applyQueryFilters();
+});
+watch(
+  () => route.query,
+  () => applyQueryFilters(),
+  { deep: true }
+);
 
-/* -----------------------------
- * Tag Filter
- * ----------------------------- */
-const selectedTags = ref<string[]>([]);
+function applyQueryFilters() {
+  const qLayout = route.query.layout;
+  const qFilter = route.query.filter;
+  const qType = route.query.filterType;
+  const qMode = route.query.filterMode as TagState | undefined;
+
+  if (qLayout === "list") {
+    layoutMode.value = "list";
+  }
+
+  if (qType === "tag" && typeof qFilter === "string") {
+    tagStates.value = {
+      [qFilter]: qMode ?? "include",
+    };
+  }
+}
+
+const tagStates = ref<Record<string, TagState>>({});
+const tagSearch = ref("");
+const showAllTags = ref(false);
 
 const allTags = computed(() => {
   const set = new Set<string>();
-  entries.value.forEach((e) => e.tags?.forEach((t) => set.add(t.name)));
+  entries.value.forEach((e) => e.tags?.forEach((tag) => set.add(tag.name)));
   return [...set].sort();
 });
 
-const filteredEntries = computed(() => {
-  if (!selectedTags.value.length) return entries.value;
-
-  return entries.value.filter((e) =>
-    selectedTags.value.every((t) => e.tags?.some((et) => et.name === t))
-  );
+const filteredTags = computed(() => {
+  if (!tagSearch.value.trim()) return [];
+  const q = tagSearch.value.toLowerCase();
+  return allTags.value.filter((tag) => tag.toLowerCase().includes(q));
 });
 
-const isCombinedMode = computed(() => selectedTags.value.length > 1);
+const selectedTags = computed(() => Object.keys(tagStates.value));
 
-/* -----------------------------
- * GRID: Tag Ranking
- * ----------------------------- */
+const visibleTags = computed(() => {
+  const set = new Set<string>();
+
+  selectedTags.value.forEach((tag) => set.add(tag));
+  filteredTags.value.forEach((tag) => set.add(tag));
+
+  const all = [...set].sort();
+  if (showAllTags.value) return all;
+
+  const pinned = selectedTags.value;
+  const rest = all.filter((tag) => !pinned.includes(tag));
+
+  return [...pinned, ...rest.slice(0, 40)];
+});
+
+const filteredEntries = computed(() => {
+  return entries.value.filter((e) => {
+    const tags = e.tags?.map((tag) => tag.name) ?? [];
+
+    for (const [tag, state] of Object.entries(tagStates.value)) {
+      if (state === "include" && !tags.includes(tag)) return false;
+      if (state === "exclude" && tags.includes(tag)) return false;
+    }
+
+    return true;
+  });
+});
+
+const includedTags = computed(() =>
+  Object.entries(tagStates.value)
+    .filter(([, s]) => s === "include")
+    .map(([tag]) => tag)
+);
+
+const isCombinedMode = computed(() => includedTags.value.length > 1);
+
 const normalTagStats = computed(() => {
   const map: Record<
     string,
@@ -76,7 +141,7 @@ const normalTagStats = computed(() => {
       count: number;
       scoreSum: number;
       scoreCount: number;
-      minutes: number;
+      minutesWatched: number;
       covers: TagCover[];
     }
   > = {};
@@ -85,57 +150,50 @@ const normalTagStats = computed(() => {
     const minutes = (e.progress ?? 0) * (e.duration ?? 0);
 
     for (const tag of e.tags ?? []) {
-      const tagName = tag.name;
+      const name = tag.name;
 
-      if (!map[tagName]) {
-        map[tagName] = {
+      if (!map[name]) {
+        map[name] = {
           count: 0,
           scoreSum: 0,
           scoreCount: 0,
-          minutes: 0,
+          minutesWatched: 0,
           covers: [],
         };
       }
 
-      map[tagName].count++;
-      map[tagName].minutes += minutes;
+      map[name].count++;
+      map[name].minutesWatched += minutes;
 
       if (e.score && e.score > 0) {
-        map[tagName].scoreSum += e.score;
-        map[tagName].scoreCount++;
+        map[name].scoreSum += e.score;
+        map[name].scoreCount++;
       }
 
-      if (e.id && e.coverImage) {
-        const cover =
-          typeof e.coverImage === "string"
-            ? e.coverImage
-            : e.coverImage.extraLarge ||
-              e.coverImage.large ||
-              e.coverImage.medium;
+      const cover =
+        typeof e.coverImage === "string"
+          ? e.coverImage
+          : e.coverImage?.extraLarge || e.coverImage?.large || e.coverImage?.medium;
 
-        if (cover) {
-          map[tagName].covers.push({
-            id: e.id,
-            title: e.title?.english ?? e.title?.romaji ?? "Unknown title",
-            cover,
-          });
-        }
+      if (cover && !map[name].covers.some((c) => c.id === e.id)) {
+        map[name].covers.push({
+          id: e.id,
+          title: e.title?.english ?? e.title?.romaji ?? t("common.unknown"),
+          cover,
+        });
       }
     }
   }
 
-  return Object.entries(map).map(([tag, t]) => ({
-    genre: tag, // 👈 bewusst "genre", damit GenreCard wiederverwendet wird
-    count: t.count,
-    meanScore: t.scoreCount ? Math.round(t.scoreSum / t.scoreCount) : 0,
-    minutesWatched: t.minutes,
-    covers: t.covers,
+  return Object.entries(map).map(([tag, entry]) => ({
+    genre: tag,
+    count: entry.count,
+    meanScore: entry.scoreCount ? Math.round((entry.scoreSum / entry.scoreCount) * 10) / 10 : 0,
+    minutesWatched: entry.minutesWatched,
+    covers: entry.covers,
   }));
 });
 
-/* -----------------------------
- * COMBINED Tag Stats
- * ----------------------------- */
 const combinedStats = computed(() => {
   if (!isCombinedMode.value) return null;
 
@@ -152,26 +210,22 @@ const combinedStats = computed(() => {
       scoreCount++;
     }
 
-    if (e.id && e.coverImage) {
-      const cover =
-        typeof e.coverImage === "string"
-          ? e.coverImage
-          : e.coverImage.extraLarge ||
-            e.coverImage.large ||
-            e.coverImage.medium;
+    const cover =
+      typeof e.coverImage === "string"
+        ? e.coverImage
+        : e.coverImage?.extraLarge || e.coverImage?.large || e.coverImage?.medium;
 
-      if (cover) {
-        covers.push({
-          id: e.id,
-          title: e.title?.english ?? e.title?.romaji ?? "Unknown title",
-          cover,
-        });
-      }
+    if (cover && !covers.some((c) => c.id === e.id)) {
+      covers.push({
+        id: e.id,
+        title: e.title?.english ?? e.title?.romaji ?? t("common.unknown"),
+        cover,
+      });
     }
   }
 
   return {
-    genre: selectedTags.value.join(" + "),
+    genre: includedTags.value.join(" + "),
     count: filteredEntries.value.length,
     meanScore: scoreCount ? Math.round(scoreSum / scoreCount) : 0,
     minutesWatched: minutes,
@@ -179,195 +233,174 @@ const combinedStats = computed(() => {
   };
 });
 
+function sortTags<T extends { count: number; minutesWatched: number; meanScore: number }>(list: T[]) {
+  return [...list].sort((a, b) => {
+    if (tagSortMode.value === "count") return b.count - a.count;
+    if (tagSortMode.value === "score") return b.meanScore - a.meanScore;
+    return b.minutesWatched - a.minutesWatched;
+  });
+}
+
 const displayedTags = computed(() => {
   if (combinedStats.value) return [combinedStats.value];
-  return normalTagStats.value;
-});
 
-/* -----------------------------
- * LIST MODE
- * ----------------------------- */
-const listSummary = computed(() => {
-  if (!filteredEntries.value.length) return null;
+  const sorted = sortTags(normalTagStats.value);
+  const used = new Set<number>();
 
-  let minutes = 0;
-  let scoreSum = 0;
-  let scoreCount = 0;
+  return sorted.map((entry) => {
+    if (!entry.covers.length) return entry;
 
-  for (const e of filteredEntries.value) {
-    minutes += (e.progress ?? 0) * (e.duration ?? 0);
-    if (e.score && e.score > 0) {
-      scoreSum += e.score;
-      scoreCount++;
-    }
-  }
+    const featured = entry.covers.find((c) => !used.has(c.id)) ?? entry.covers[0];
+    used.add(featured.id);
 
-  return {
-    title: selectedTags.value.length
-      ? selectedTags.value.join(" + ")
-      : "Alle Tags",
-    count: filteredEntries.value.length,
-    meanScore: scoreCount ? Math.round(scoreSum / scoreCount) : 0,
-    hours: Math.round(minutes / 60),
-  };
+    return {
+      ...entry,
+      covers: [featured, ...entry.covers.filter((c) => c.id !== featured.id)],
+    };
+  });
 });
 
 const listAnime = computed(() =>
-  filteredEntries.value.map((e) => {
-    const relevantTags = selectedTags.value.length
-      ? e.tags?.filter((t) => selectedTags.value.includes(t.name)) ?? []
-      : [];
-
-    return {
-      id: e.id,
-      title: e.title?.english ?? e.title?.romaji ?? "Unknown",
-      cover:
-        typeof e.coverImage === "string" ? e.coverImage : e.coverImage?.medium,
-      score: e.score,
-
-      tagRanks: relevantTags.map((t) => ({
-        name: t.name,
-        rank: t.rank,
-      })),
-    };
-  })
+  filteredEntries.value.map((e) => ({
+    id: e.id,
+    title: e.title?.english ?? e.title?.romaji ?? t("common.unknown"),
+    cover: typeof e.coverImage === "string" ? e.coverImage : e.coverImage?.medium,
+    score: e.score,
+  }))
 );
 
-/* -----------------------------
- * Helpers
- * ----------------------------- */
 function toggleTag(tag: string) {
-  const i = selectedTags.value.indexOf(tag);
-  i === -1 ? selectedTags.value.push(tag) : selectedTags.value.splice(i, 1);
+  const current = tagStates.value[tag];
+
+  if (!current) tagStates.value[tag] = "include";
+  else if (current === "include") tagStates.value[tag] = "exclude";
+  else delete tagStates.value[tag];
 }
+
 function anilistUrl(id: number) {
   return `https://anilist.co/anime/${id}`;
 }
 </script>
 
 <template>
-  <div class="space-y-6">
-    <!-- Header -->
-    <div class="flex justify-between items-center">
-      <h1 class="text-3xl font-bold">Tags</h1>
-      <div class="flex gap-2">
+  <div class="page-shell">
+    <div class="page-header">
+      <h1 class="text-3xl font-bold">{{ t("nav.tags") }}</h1>
+
+      <div class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
         <input
           v-model="username"
-          class="bg-zinc-900 border border-zinc-800 px-3 py-2 rounded"
+          class="ui-input w-full sm:w-48"
+          :placeholder="t('common.usernamePlaceholder')"
+          @keydown.enter.prevent="loadAnime"
+          @keydown.space.prevent="loadAnime"
         />
-        <button @click="loadAnime" class="bg-indigo-600 px-4 py-2 rounded">
-          Laden
+        <button @click="loadAnime" class="ui-btn ui-btn-primary w-full sm:w-auto">
+          {{ t("common.load") }}
         </button>
       </div>
     </div>
 
-    <!-- Layout Switch -->
-    <div class="flex justify-end gap-2">
+    <div class="flex flex-wrap gap-2 justify-between items-center">
+      <div class="flex gap-2">
+        <button
+          @click="tagSortMode = 'count'"
+          class="px-3 py-2 text-xs rounded border"
+          :class="tagSortMode === 'count' ? 'bg-indigo-600 text-white' : 'bg-zinc-900 text-zinc-300'"
+        >
+          {{ t("common.count") }}
+        </button>
+        <button
+          @click="tagSortMode = 'score'"
+          class="px-3 py-2 text-xs rounded border"
+          :class="tagSortMode === 'score' ? 'bg-indigo-600 text-white' : 'bg-zinc-900 text-zinc-300'"
+        >
+          {{ t("common.score") }}
+        </button>
+        <button
+          @click="tagSortMode = 'minutes'"
+          class="px-3 py-2 text-xs rounded border"
+          :class="tagSortMode === 'minutes' ? 'bg-indigo-600 text-white' : 'bg-zinc-900 text-zinc-300'"
+        >
+          {{ t("common.hours") }}
+        </button>
+      </div>
+
+      <div class="flex gap-2">
+        <button
+          @click="layoutMode = 'grid'"
+          class="px-3 py-2 text-xs rounded border"
+          :class="layoutMode === 'grid' ? 'bg-indigo-600 text-white' : 'bg-zinc-900 text-zinc-300'"
+        >
+          {{ t("common.grid") }}
+        </button>
+        <button
+          @click="layoutMode = 'list'"
+          class="px-3 py-2 text-xs rounded border"
+          :class="layoutMode === 'list' ? 'bg-indigo-600 text-white' : 'bg-zinc-900 text-zinc-300'"
+        >
+          {{ t("common.list") }}
+        </button>
+      </div>
+    </div>
+
+    <input v-if="!loading" v-model="tagSearch" :placeholder="t('common.searchTags')" class="ui-input w-full px-4" />
+
+    <div v-if="loading" class="flex items-center justify-center py-12">
+      <div class="h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-indigo-500" />
+    </div>
+    <div v-else-if="error" class="text-red-400">{{ error }}</div>
+
+    <div v-else-if="tagSearch.trim() || selectedTags.length" class="flex flex-wrap gap-2">
       <button
-        @click="layoutMode = 'grid'"
-        class="px-3 py-1 text-xs rounded border"
-        :class="
-          layoutMode === 'grid'
-            ? 'bg-indigo-600 text-white'
-            : 'bg-zinc-900 text-zinc-300'
-        "
+        v-for="tag in visibleTags"
+        :key="tag"
+        @click="toggleTag(tag)"
+        class="px-3 py-2 rounded-full text-xs border"
+        :class="{
+          'bg-indigo-600 text-white': tagStates[tag] === 'include',
+          'bg-red-600 text-white': tagStates[tag] === 'exclude',
+          'bg-zinc-900 text-zinc-300': !tagStates[tag],
+        }"
       >
-        Grid
-      </button>
-      <button
-        @click="layoutMode = 'list'"
-        class="px-3 py-1 text-xs rounded border"
-        :class="
-          layoutMode === 'list'
-            ? 'bg-indigo-600 text-white'
-            : 'bg-zinc-900 text-zinc-300'
-        "
-      >
-        List
+        {{ tag }}
       </button>
     </div>
 
-    <!-- Tag Filter -->
-    <div class="flex flex-wrap gap-2">
-      <button
-        v-for="t in allTags"
-        :key="t"
-        @click="toggleTag(t)"
-        class="px-3 py-1 rounded-full text-xs border"
-        :class="
-          selectedTags.includes(t)
-            ? 'bg-indigo-600 text-white'
-            : 'bg-zinc-900 text-zinc-300'
-        "
-      >
-        {{ t }}
-      </button>
-
-      <button
-        v-if="selectedTags.length"
-        @click="selectedTags = []"
-        class="px-3 py-1 rounded-full text-xs bg-zinc-800"
-      >
-        Reset
-      </button>
-    </div>
-
-    <!-- GRID -->
-    <div
-      v-if="layoutMode === 'grid'"
-      class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3"
-    >
-      <GenreCard
+    <div v-if="!loading && !error && layoutMode === 'grid'" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <GameCard
         v-for="(g, i) in displayedTags"
         :key="g.genre"
         :rank="i + 1"
         :data="g"
+        target="/tags"
+        :filter="{ key: 'filter', typeKey: 'filterType', typeValue: 'tag', modeKey: 'filterMode', modeValue: 'include' }"
       />
     </div>
 
-    <!-- LIST -->
-    <div v-else class="space-y-3">
-      <div
-        v-if="listSummary"
-        class="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4 flex gap-6"
-      >
-        <div class="font-semibold">
-          {{ listSummary.title }}
-        </div>
-        <div class="flex gap-6 text-sm text-zinc-300">
-          <span>{{ listSummary.count }} Anime</span>
-          <span>{{ listSummary.meanScore || "—" }}</span>
-          <span>{{ listSummary.hours }} h</span>
-        </div>
+    <div v-else-if="!loading && !error">
+      <div class="flex items-center justify-between text-sm mb-2">
+        <button class="px-3 py-1 rounded border" :disabled="currentPage === 1" @click="currentPage--">
+          &larr; {{ t("common.back") }}
+        </button>
+
+        <span>{{ t("common.page") }} {{ currentPage }} / {{ totalPages }}</span>
+
+        <button class="px-3 py-1 rounded border" :disabled="currentPage === totalPages" @click="currentPage++">
+          {{ t("common.next") }} &rarr;
+        </button>
       </div>
-
-      <div
-        v-for="a in listAnime"
-        :key="a.id"
-        class="flex gap-4 items-center p-3 rounded-xl border border-zinc-800 bg-zinc-900/30"
-      >
-        <img
-          v-if="a.cover"
-          :src="a.cover"
-          class="h-14 aspect-2/3 rounded object-cover"
-        />
-        <a
-          :href="anilistUrl(a.id)"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="flex-1 truncate hover:underline hover:text-indigo-400 cursor-pointer"
+      <div class="space-y-2">
+        <div
+          v-for="a in paginatedListAnime"
+          :key="a.id"
+          class="flex gap-3 items-center p-3 rounded-xl border border-zinc-800 bg-zinc-900/30"
         >
-          {{ a.title }}
-        </a>
-        <div class="flex flex-col items-end text-xs text-zinc-400">
-          <span>{{ a.score || "—" }}</span>
-
-          <span v-if="a.tagRanks.length" class="text-zinc-500">
-            <template v-for="(t, i) in a.tagRanks" :key="t.name">
-              <span v-if="i > 0"> + </span>
-              {{ t.name }} {{ t.rank }}%
-            </template>
-          </span>
+          <img v-if="a.cover" :src="a.cover" class="h-14 aspect-2/3 rounded object-cover shrink-0" />
+          <a :href="anilistUrl(a.id)" target="_blank" class="flex-1 hover:underline hover:text-indigo-400">
+            {{ a.title }}
+          </a>
+          <span class="text-xs text-zinc-400">{{ a.score || "-" }}</span>
         </div>
       </div>
     </div>

@@ -1,12 +1,21 @@
 <script setup lang="ts">
 import { api } from "~/composables/useApi";
 import { normalizeAnilist } from "~/utils/normalizeAnilist";
+import { useRoute } from "vue-router";
 import type { AnimeEntry } from "~/types/anime";
-import GenreCard from "../components/GenreCard.vue";
+import GameCard from "../components/GameCard.vue";
 
-/* -----------------------------
- * Types
- * ----------------------------- */
+const { t } = useLocale();
+const route = useRoute();
+
+const pageSize = 50;
+const currentPage = ref(1);
+const totalPages = computed(() => Math.max(1, Math.ceil(listAnime.value.length / pageSize)));
+const paginatedListAnime = computed(() => {
+  const start = (currentPage.value - 1) * pageSize;
+  return listAnime.value.slice(start, start + pageSize);
+});
+
 type GenreCover = {
   id: number;
   title: string;
@@ -14,41 +23,69 @@ type GenreCover = {
 };
 
 type LayoutMode = "grid" | "list";
+type GenreState = "include" | "exclude";
+type GenreSortMode = "count" | "minutes" | "score";
 
-/* -----------------------------
- * State
- * ----------------------------- */
-const username = ref("Tiggy");
+const username = useAnilistUser();
 const loading = ref(false);
 const error = ref<string | null>(null);
 const entries = ref<AnimeEntry[]>([]);
 const layoutMode = ref<LayoutMode>("grid");
+const genreSortMode = ref<GenreSortMode>("count");
 
-/* -----------------------------
- * API
- * ----------------------------- */
+definePageMeta({ title: "Genres", middleware: "auth" });
+
 async function loadAnime() {
   loading.value = true;
   error.value = null;
 
   try {
-    const res = await api.post("/api/anilist", null, {
+    if (!username.value) {
+      loading.value = false;
+      return;
+    }
+
+    const res = await api.post("/api/private/anilist", null, {
       params: { user: username.value },
     });
     entries.value = normalizeAnilist(res.data.data.MediaListCollection.lists);
-  } catch (e: any) {
-    error.value = e?.message ?? "Unbekannter Fehler";
+  } catch {
+    error.value = `${t("common.errorPrefix")}: ${t("genres.loadError")}`;
   } finally {
     loading.value = false;
   }
 }
 
-onMounted(loadAnime);
+onMounted(async () => {
+  if (username.value) {
+    await loadAnime();
+  }
+  applyQueryFilters();
+});
 
-/* -----------------------------
- * Genre Filter
- * ----------------------------- */
-const selectedGenres = ref<string[]>([]);
+watch(
+  () => route.query,
+  () => applyQueryFilters(),
+  { deep: true }
+);
+
+function applyQueryFilters() {
+  const qGenre = route.query.genre;
+  const qLayout = route.query.layout;
+  const qMode = route.query.genreMode as GenreState | undefined;
+
+  if (qLayout === "list") {
+    layoutMode.value = "list";
+  }
+
+  if (typeof qGenre === "string") {
+    genreStates.value = {
+      [qGenre]: qMode ?? "include",
+    };
+  }
+}
+
+const genreStates = ref<Record<string, GenreState>>({});
 
 const allGenres = computed(() => {
   const set = new Set<string>();
@@ -57,17 +94,25 @@ const allGenres = computed(() => {
 });
 
 const filteredEntries = computed(() => {
-  if (!selectedGenres.value.length) return entries.value;
-  return entries.value.filter((e) =>
-    selectedGenres.value.every((g) => e.genres?.includes(g))
-  );
+  return entries.value.filter((e) => {
+    const genres = e.genres ?? [];
+
+    for (const [g, state] of Object.entries(genreStates.value)) {
+      if (state === "include" && !genres.includes(g)) return false;
+      if (state === "exclude" && genres.includes(g)) return false;
+    }
+    return true;
+  });
 });
 
-const isCombinedMode = computed(() => selectedGenres.value.length > 1);
+const includedGenres = computed(() =>
+  Object.entries(genreStates.value)
+    .filter(([, s]) => s === "include")
+    .map(([g]) => g)
+);
 
-/* -----------------------------
- * GRID: Genre Ranking
- * ----------------------------- */
+const isCombinedMode = computed(() => includedGenres.value.length > 1);
+
 const normalGenreStats = computed(() => {
   const map: Record<
     string,
@@ -75,7 +120,7 @@ const normalGenreStats = computed(() => {
       count: number;
       scoreSum: number;
       scoreCount: number;
-      minutes: number;
+      minutesWatched: number;
       covers: GenreCover[];
     }
   > = {};
@@ -89,34 +134,30 @@ const normalGenreStats = computed(() => {
           count: 0,
           scoreSum: 0,
           scoreCount: 0,
-          minutes: 0,
+          minutesWatched: 0,
           covers: [],
         };
       }
 
       map[genre].count++;
-      map[genre].minutes += minutes;
+      map[genre].minutesWatched += minutes;
 
       if (e.score && e.score > 0) {
         map[genre].scoreSum += e.score;
         map[genre].scoreCount++;
       }
 
-      if (e.id && e.coverImage) {
-        const cover =
-          typeof e.coverImage === "string"
-            ? e.coverImage
-            : e.coverImage.extraLarge ||
-              e.coverImage.large ||
-              e.coverImage.medium;
+      const cover =
+        typeof e.coverImage === "string"
+          ? e.coverImage
+          : e.coverImage?.extraLarge || e.coverImage?.large || e.coverImage?.medium;
 
-        if (cover) {
-          map[genre].covers.push({
-            id: e.id,
-            title: e.title?.english ?? e.title?.romaji ?? "Unknown title",
-            cover,
-          });
-        }
+      if (cover && !map[genre].covers.some((c) => c.id === e.id)) {
+        map[genre].covers.push({
+          id: e.id,
+          title: e.title?.english ?? e.title?.romaji ?? t("common.unknown"),
+          cover,
+        });
       }
     }
   }
@@ -124,8 +165,8 @@ const normalGenreStats = computed(() => {
   return Object.entries(map).map(([genre, g]) => ({
     genre,
     count: g.count,
-    meanScore: g.scoreCount ? Math.round(g.scoreSum / g.scoreCount) : 0,
-    minutesWatched: g.minutes,
+    meanScore: g.scoreCount ? Math.round((g.scoreSum / g.scoreCount) * 10) / 10 : 0,
+    minutesWatched: g.minutesWatched,
     covers: g.covers,
   }));
 });
@@ -146,26 +187,22 @@ const combinedStats = computed(() => {
       scoreCount++;
     }
 
-    if (e.id && e.coverImage) {
-      const cover =
-        typeof e.coverImage === "string"
-          ? e.coverImage
-          : e.coverImage.extraLarge ||
-            e.coverImage.large ||
-            e.coverImage.medium;
+    const cover =
+      typeof e.coverImage === "string"
+        ? e.coverImage
+        : e.coverImage?.extraLarge || e.coverImage?.large || e.coverImage?.medium;
 
-      if (cover) {
-        covers.push({
-          id: e.id,
-          title: e.title?.english ?? e.title?.romaji ?? "Unknown title",
-          cover,
-        });
-      }
+    if (cover && !covers.some((c) => c.id === e.id)) {
+      covers.push({
+        id: e.id,
+        title: e.title?.english ?? e.title?.romaji ?? t("common.unknown"),
+        cover,
+      });
     }
   }
 
   return {
-    genre: selectedGenres.value.join(" + "),
+    genre: includedGenres.value.join(" + "),
     count: filteredEntries.value.length,
     meanScore: scoreCount ? Math.round(scoreSum / scoreCount) : 0,
     minutesWatched: minutes,
@@ -173,182 +210,171 @@ const combinedStats = computed(() => {
   };
 });
 
+function sortGenres<T extends { count: number; minutesWatched: number; meanScore: number }>(list: T[]) {
+  return [...list].sort((a, b) => {
+    if (genreSortMode.value === "count") return b.count - a.count;
+    if (genreSortMode.value === "score") return b.meanScore - a.meanScore;
+    return b.minutesWatched - a.minutesWatched;
+  });
+}
+
 const displayedGenres = computed(() => {
   if (combinedStats.value) return [combinedStats.value];
-  return normalGenreStats.value;
-});
 
-/* -----------------------------
- * LIST MODE: Summary + Anime
- * ----------------------------- */
-const listSummary = computed(() => {
-  if (!filteredEntries.value.length) return null;
+  const sorted = sortGenres(normalGenreStats.value);
+  const used = new Set<number>();
 
-  let minutes = 0;
-  let scoreSum = 0;
-  let scoreCount = 0;
+  return sorted.map((g) => {
+    if (!g.covers.length) return g;
 
-  for (const e of filteredEntries.value) {
-    minutes += (e.progress ?? 0) * (e.duration ?? 0);
-    if (e.score && e.score > 0) {
-      scoreSum += e.score;
-      scoreCount++;
-    }
-  }
+    const featured = g.covers.find((c) => !used.has(c.id)) ?? g.covers[0];
+    used.add(featured.id);
 
-  return {
-    title: selectedGenres.value.length
-      ? selectedGenres.value.join(" + ")
-      : "Alle Anime",
-    count: filteredEntries.value.length,
-    meanScore: scoreCount ? Math.round(scoreSum / scoreCount) : 0,
-    hours: Math.round(minutes / 60),
-  };
+    return {
+      ...g,
+      covers: [featured, ...g.covers.filter((c) => c.id !== featured.id)],
+    };
+  });
 });
 
 const listAnime = computed(() =>
   filteredEntries.value.map((e) => ({
     id: e.id,
-    title: e.title?.english ?? e.title?.romaji ?? "Unknown",
-    cover:
-      typeof e.coverImage === "string" ? e.coverImage : e.coverImage?.medium,
+    title: e.title?.english ?? e.title?.romaji ?? t("common.unknown"),
+    cover: typeof e.coverImage === "string" ? e.coverImage : e.coverImage?.medium,
     score: e.score,
-    progress: e.progress,
   }))
 );
 
-/* -----------------------------
- * Helpers
- * ----------------------------- */
 function toggleGenre(genre: string) {
-  const i = selectedGenres.value.indexOf(genre);
-  i === -1
-    ? selectedGenres.value.push(genre)
-    : selectedGenres.value.splice(i, 1);
+  const current = genreStates.value[genre];
+  if (!current) genreStates.value[genre] = "include";
+  else if (current === "include") genreStates.value[genre] = "exclude";
+  else delete genreStates.value[genre];
 }
+
 function anilistUrl(id: number) {
   return `https://anilist.co/anime/${id}`;
 }
 </script>
 
 <template>
-  <div class="space-y-6">
-    <!-- Header -->
-    <div class="flex justify-between items-center">
-      <h1 class="text-3xl font-bold">Genres</h1>
-      <div class="flex gap-2">
+  <div class="page-shell">
+    <div class="page-header">
+      <h1 class="text-3xl font-bold">{{ t("nav.genres") }}</h1>
+
+      <div class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
         <input
           v-model="username"
-          class="bg-zinc-900 border border-zinc-800 px-3 py-2 rounded"
+          class="ui-input w-full sm:w-48"
+          :placeholder="t('common.usernamePlaceholder')"
+          @keydown.enter.prevent="loadAnime"
+          @keydown.space.prevent="loadAnime"
         />
-        <button @click="loadAnime" class="bg-indigo-600 px-4 py-2 rounded">
-          Laden
+        <button @click="loadAnime" class="ui-btn ui-btn-primary w-full sm:w-auto" :disabled="loading">
+          {{ t("common.load") }}
         </button>
       </div>
     </div>
 
-    <!-- Layout Switch -->
-    <div class="flex justify-end gap-2">
-      <button
-        @click="layoutMode = 'grid'"
-        class="px-3 py-1 text-xs rounded border"
-        :class="
-          layoutMode === 'grid'
-            ? 'bg-indigo-600 text-white'
-            : 'bg-zinc-900 text-zinc-300'
-        "
-      >
-        Grid
-      </button>
-      <button
-        @click="layoutMode = 'list'"
-        class="px-3 py-1 text-xs rounded border"
-        :class="
-          layoutMode === 'list'
-            ? 'bg-indigo-600 text-white'
-            : 'bg-zinc-900 text-zinc-300'
-        "
-      >
-        List
-      </button>
+    <div class="flex flex-wrap gap-2 justify-between items-center">
+      <div class="flex gap-2">
+        <button
+          @click="genreSortMode = 'count'"
+          class="px-3 py-2 text-xs rounded border"
+          :class="genreSortMode === 'count' ? 'bg-indigo-600 text-white' : 'bg-zinc-900 text-zinc-300'"
+        >
+          {{ t("common.count") }}
+        </button>
+        <button
+          @click="genreSortMode = 'score'"
+          class="px-3 py-2 text-xs rounded border"
+          :class="genreSortMode === 'score' ? 'bg-indigo-600 text-white' : 'bg-zinc-900 text-zinc-300'"
+        >
+          {{ t("common.score") }}
+        </button>
+        <button
+          @click="genreSortMode = 'minutes'"
+          class="px-3 py-2 text-xs rounded border"
+          :class="genreSortMode === 'minutes' ? 'bg-indigo-600 text-white' : 'bg-zinc-900 text-zinc-300'"
+        >
+          {{ t("common.hours") }}
+        </button>
+      </div>
+
+      <div class="flex gap-2">
+        <button
+          @click="layoutMode = 'grid'"
+          class="px-3 py-2 text-xs rounded border"
+          :class="layoutMode === 'grid' ? 'bg-indigo-600 text-white' : 'bg-zinc-900 text-zinc-300'"
+        >
+          {{ t("common.grid") }}
+        </button>
+        <button
+          @click="layoutMode = 'list'"
+          class="px-3 py-2 text-xs rounded border"
+          :class="layoutMode === 'list' ? 'bg-indigo-600 text-white' : 'bg-zinc-900 text-zinc-300'"
+        >
+          {{ t("common.list") }}
+        </button>
+      </div>
     </div>
 
-    <!-- Genre Filter -->
-    <div class="flex flex-wrap gap-2">
+    <div v-if="loading" class="flex items-center justify-center py-12">
+      <div class="h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-indigo-500" />
+    </div>
+    <div v-else-if="error" class="text-red-400">{{ error }}</div>
+
+    <div v-else class="flex flex-wrap gap-2">
       <button
         v-for="g in allGenres"
         :key="g"
         @click="toggleGenre(g)"
-        class="px-3 py-1 rounded-full text-xs border"
-        :class="
-          selectedGenres.includes(g)
-            ? 'bg-indigo-600 text-white'
-            : 'bg-zinc-900 text-zinc-300'
-        "
+        class="px-3 py-2 rounded-full text-xs border"
+        :class="{
+          'bg-indigo-600 text-white': genreStates[g] === 'include',
+          'bg-red-600 text-white': genreStates[g] === 'exclude',
+          'bg-zinc-900 text-zinc-300': !genreStates[g],
+        }"
       >
         {{ g }}
       </button>
-
-      <button
-        v-if="selectedGenres.length"
-        @click="selectedGenres = []"
-        class="px-3 py-1 rounded-full text-xs bg-zinc-800"
-      >
-        Reset
-      </button>
     </div>
 
-    <!-- GRID -->
-    <div
-      v-if="layoutMode === 'grid'"
-      class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3"
-    >
-      <GenreCard
+    <div v-if="layoutMode === 'grid'" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <GameCard
         v-for="(g, i) in displayedGenres"
         :key="g.genre"
         :rank="i + 1"
         :data="g"
+        target="/genres"
+        :filter="{ key: 'genre', modeKey: 'genreMode', modeValue: 'include' }"
       />
     </div>
 
-    <!-- LIST -->
-    <div v-else class="space-y-3">
-      <!-- Summary -->
-      <div
-        v-if="listSummary"
-        class="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4 flex gap-6"
-      >
-        <div class="font-semibold">
-          {{ listSummary.title }}
-        </div>
-        <div class="flex gap-6 text-sm text-zinc-300">
-          <span>{{ listSummary.count }} Anime</span>
-          <span>{{ listSummary.meanScore || "—" }}</span>
-          <span>{{ listSummary.hours }} h</span>
-        </div>
-      </div>
+    <div v-else>
+      <div class="flex items-center justify-between text-sm mb-2">
+        <button class="px-3 py-1 rounded border" :disabled="currentPage === 1" @click="currentPage--">
+          &larr; {{ t("common.back") }}
+        </button>
 
-      <!-- Anime List -->
-      <div
-        v-for="a in listAnime"
-        :key="a.id"
-        class="flex gap-4 items-center p-3 rounded-xl border border-zinc-800 bg-zinc-900/30"
-      >
-        <img
-          v-if="a.cover"
-          :src="a.cover"
-          class="h-14 aspect-2/3 rounded object-cover"
-        />
-        <a
-          :href="anilistUrl(a.id)"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="flex-1 truncate hover:underline hover:text-indigo-400 cursor-pointer"
+        <span>{{ t("common.page") }} {{ currentPage }} / {{ totalPages }}</span>
+
+        <button class="px-3 py-1 rounded border" :disabled="currentPage === totalPages" @click="currentPage++">
+          {{ t("common.next") }} &rarr;
+        </button>
+      </div>
+      <div class="space-y-2">
+        <div
+          v-for="a in paginatedListAnime"
+          :key="a.id"
+          class="flex gap-3 items-center p-3 rounded-xl border border-zinc-800 bg-zinc-900/30"
         >
-          {{ a.title }}
-        </a>
-        <div class="text-xs text-zinc-400">
-          {{ a.score || "—" }}
+          <img v-if="a.cover" :src="a.cover" class="h-14 aspect-2/3 rounded object-cover" />
+          <a :href="anilistUrl(a.id)" target="_blank" class="flex-1 hover:underline hover:text-indigo-400">
+            {{ a.title }}
+          </a>
+          <span class="text-xs text-zinc-400">{{ a.score || "-" }}</span>
         </div>
       </div>
     </div>

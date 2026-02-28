@@ -1,0 +1,336 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const state = vi.hoisted(() => ({
+  query: {} as Record<string, any>,
+  cache: new Map<string, any>(),
+}))
+
+const prismaAnimeFindManyMock = vi.hoisted(() => vi.fn(async () => []))
+const prismaAnimeGenreFindManyMock = vi.hoisted(() => vi.fn(async () => []))
+const prismaAnimeTagFindManyMock = vi.hoisted(() => vi.fn(async () => []))
+const prismaAnimeRelationFindManyMock = vi.hoisted(() => vi.fn(async () => []))
+const loadUserEntriesMock = vi.hoisted(() => vi.fn(async () => []))
+const loadGlobalStatsMock = vi.hoisted(
+  () =>
+    vi.fn(async () => ({
+      totalAnime: 100,
+      genreCount: new Map<string, number>(),
+      tagCount: new Map<number, number>(),
+    }))
+)
+const buildTasteProfileMock = vi.hoisted(
+  () =>
+    vi.fn(() => ({
+      genres: new Map<string, number>(),
+      tags: new Map<number, number>(),
+      negativeGenres: new Map<string, number>(),
+      negativeTags: new Map<number, number>(),
+      unseenGenres: new Map<string, number>(),
+      unseenTags: new Map<number, number>(),
+    }))
+)
+const scoreAnimeMock = vi.hoisted(() =>
+  vi.fn((anime: any) => ({
+    score: anime.id === 2 ? 0.91 : 0.73,
+    matchedGenres: ["Action"],
+    matchedTags: ["School"],
+  }))
+)
+const buildChainMapFromEdgesMock = vi.hoisted(() =>
+  vi.fn(() => new Map<number, number[]>())
+)
+const isFirstUnseenInChainMock = vi.hoisted(() => vi.fn(() => true))
+const setItemMock = vi.hoisted(() => vi.fn(async (_key: string, _value: any) => {}))
+
+vi.mock("h3", () => ({
+  defineEventHandler: (handler: any) => handler,
+  getQuery: () => state.query,
+  setHeader: vi.fn(),
+  createError: (input: { statusCode: number; statusMessage: string }) => {
+    const err = new Error(input.statusMessage) as any
+    err.statusCode = input.statusCode
+    err.statusMessage = input.statusMessage
+    return err
+  },
+}))
+
+vi.mock("../utils/prisma", () => ({
+  prisma: {
+    anime: {
+      findMany: prismaAnimeFindManyMock,
+    },
+    animeGenre: {
+      findMany: prismaAnimeGenreFindManyMock,
+    },
+    animeTag: {
+      findMany: prismaAnimeTagFindManyMock,
+    },
+    animeRelation: {
+      findMany: prismaAnimeRelationFindManyMock,
+    },
+  },
+}))
+
+vi.mock("../server/recommend/anilist", () => ({
+  loadUserAnilistEntries: loadUserEntriesMock,
+}))
+
+vi.mock("../server/recommend/globalStats", () => ({
+  loadGlobalStats: loadGlobalStatsMock,
+}))
+
+vi.mock("../server/recommend/tasteProfile", () => ({
+  buildTasteProfile: buildTasteProfileMock,
+}))
+
+vi.mock("../server/recommend/scoring", () => ({
+  scoreAnime: scoreAnimeMock,
+}))
+
+vi.mock("../server/recommend/chain", () => ({
+  buildChainMapFromEdges: buildChainMapFromEdgesMock,
+  isFirstUnseenInChain: isFirstUnseenInChainMock,
+}))
+
+describe("api/private/recommendation.get", () => {
+  beforeEach(() => {
+    vi.resetModules()
+    state.query = {}
+    state.cache.clear()
+    prismaAnimeFindManyMock.mockReset()
+    prismaAnimeGenreFindManyMock.mockReset()
+    prismaAnimeTagFindManyMock.mockReset()
+    prismaAnimeRelationFindManyMock.mockReset()
+    loadUserEntriesMock.mockReset()
+    loadGlobalStatsMock.mockClear()
+    buildTasteProfileMock.mockClear()
+    scoreAnimeMock.mockClear()
+    buildChainMapFromEdgesMock.mockClear()
+    isFirstUnseenInChainMock.mockClear()
+    setItemMock.mockReset()
+
+    ;(globalThis as any).useStorage = () => ({
+      getItem: async (key: string) => state.cache.get(key) ?? null,
+      setItem: async (key: string, value: any) => {
+        await setItemMock(key, value)
+        state.cache.set(key, value)
+      },
+    })
+  })
+
+  it("throws 400 when user query is missing", async () => {
+    const mod = await import("../server/api/private/recommendation.get")
+    await expect(mod.default({} as any)).rejects.toMatchObject({
+      statusCode: 400,
+      statusMessage: "Missing user",
+    })
+  })
+
+  it("returns grouped recommendations for TV and MOVIE", async () => {
+    state.query = { user: "Leon", includeUpcoming: "true" }
+    loadUserEntriesMock.mockResolvedValueOnce([
+      { mediaId: 1, status: "COMPLETED", score: 8 },
+    ])
+    prismaAnimeFindManyMock
+      .mockResolvedValueOnce([
+        {
+          id: 2,
+          titleEn: "TV Title",
+          titleRo: "TV Ro",
+          cover: "tv.jpg",
+          format: "TV",
+          averageScore: 80,
+          season: "SPRING",
+          startYear: 2024,
+          startMonth: 1,
+          startDay: 1,
+          episodes: 12,
+        },
+        {
+          id: 3,
+          titleEn: "Movie Title",
+          titleRo: "Movie Ro",
+          cover: "movie.jpg",
+          format: "MOVIE",
+          averageScore: 78,
+          season: "WINTER",
+          startYear: 2023,
+          startMonth: 1,
+          startDay: 1,
+          episodes: 1,
+        },
+      ])
+    prismaAnimeGenreFindManyMock.mockResolvedValueOnce([
+      { animeId: 2, name: "Action" },
+      { animeId: 3, name: "Action" },
+    ])
+    prismaAnimeTagFindManyMock.mockResolvedValueOnce([
+      { animeId: 2, name: "School", tagId: 1, rank: 80, isAdult: false },
+      { animeId: 3, name: "School", tagId: 1, rank: 80, isAdult: false },
+    ])
+    prismaAnimeRelationFindManyMock.mockResolvedValueOnce([
+      { fromId: 2, toId: 3, relationType: "SEQUEL" },
+    ])
+
+    const mod = await import("../server/api/private/recommendation.get")
+    const out = await mod.default({} as any)
+
+    expect(out.user).toBe("Leon")
+    expect(out.total).toBe(2)
+    expect(out.items.TV).toHaveLength(1)
+    expect(out.items.MOVIE).toHaveLength(1)
+    expect(out.items.TV[0].id).toBe(2)
+  })
+
+  it("still returns recommendations for users without rating signal (cold start)", async () => {
+    state.query = { user: "NoRatings", includeUpcoming: "true" }
+    loadUserEntriesMock.mockResolvedValueOnce([
+      { mediaId: 1, status: "COMPLETED", score: null },
+    ])
+    buildTasteProfileMock.mockReturnValueOnce({
+      genres: new Map<string, number>(),
+      tags: new Map<number, number>(),
+      negativeGenres: new Map<string, number>(),
+      negativeTags: new Map<number, number>(),
+      unseenGenres: new Map<string, number>([["Action", 1]]),
+      unseenTags: new Map<number, number>(),
+    })
+    prismaAnimeFindManyMock
+      .mockResolvedValueOnce([
+        {
+          id: 2,
+          titleEn: "TV Title",
+          titleRo: "TV Ro",
+          cover: "tv.jpg",
+          format: "TV",
+          averageScore: 81,
+          season: "SPRING",
+          startYear: 2024,
+          startMonth: 1,
+          startDay: 1,
+          episodes: 12,
+        },
+      ])
+    prismaAnimeGenreFindManyMock.mockResolvedValueOnce([{ animeId: 2, name: "Action" }])
+    prismaAnimeTagFindManyMock.mockResolvedValueOnce([
+      { animeId: 2, name: "School", tagId: 1, rank: 80, isAdult: false },
+    ])
+    prismaAnimeRelationFindManyMock.mockResolvedValueOnce([])
+
+    const mod = await import("../server/api/private/recommendation.get")
+    const out = await mod.default({} as any)
+
+    expect(out.total).toBe(1)
+    expect(out.items.TV).toHaveLength(1)
+    expect(out.items.TV[0].id).toBe(2)
+    expect(out.items.TV[0].score).toBeGreaterThan(0)
+  })
+
+  it("prefers richer genre/tag combinations in cold start", async () => {
+    state.query = { user: "ComboUser", includeUpcoming: "true" }
+    loadUserEntriesMock.mockResolvedValueOnce([])
+    loadGlobalStatsMock.mockResolvedValueOnce({
+      totalAnime: 100,
+      genreCount: new Map<string, number>([
+        ["Action", 20],
+        ["Drama", 18],
+        ["Comedy", 16],
+      ]),
+      tagCount: new Map<number, number>([
+        [1, 22],
+        [2, 20],
+        [3, 18],
+      ]),
+    })
+    buildTasteProfileMock.mockReturnValueOnce({
+      genres: new Map<string, number>(),
+      tags: new Map<number, number>(),
+      negativeGenres: new Map<string, number>(),
+      negativeTags: new Map<number, number>(),
+      unseenGenres: new Map<string, number>(),
+      unseenTags: new Map<number, number>(),
+    })
+
+    prismaAnimeFindManyMock
+      .mockResolvedValueOnce([
+        {
+          id: 10,
+          titleEn: "High Score Sparse",
+          titleRo: "Sparse",
+          cover: "sparse.jpg",
+          format: "TV",
+          averageScore: 95,
+          season: "SPRING",
+          startYear: 2024,
+          startMonth: 1,
+          startDay: 1,
+          episodes: 12,
+        },
+        {
+          id: 20,
+          titleEn: "Richer Combo",
+          titleRo: "Richer",
+          cover: "richer.jpg",
+          format: "TV",
+          averageScore: 85,
+          season: "SPRING",
+          startYear: 2024,
+          startMonth: 1,
+          startDay: 1,
+          episodes: 12,
+        },
+      ])
+    prismaAnimeGenreFindManyMock.mockResolvedValueOnce([
+      { animeId: 10, name: "Action" },
+      { animeId: 20, name: "Action" },
+      { animeId: 20, name: "Drama" },
+      { animeId: 20, name: "Comedy" },
+    ])
+    prismaAnimeTagFindManyMock.mockResolvedValueOnce([
+      { animeId: 20, name: "School", tagId: 1, rank: 70, isAdult: false },
+      { animeId: 20, name: "Friendship", tagId: 2, rank: 70, isAdult: false },
+      { animeId: 20, name: "Coming of Age", tagId: 3, rank: 70, isAdult: false },
+    ])
+    prismaAnimeRelationFindManyMock.mockResolvedValueOnce([])
+
+    const mod = await import("../server/api/private/recommendation.get")
+    const out = await mod.default({} as any)
+
+    expect(out.items.TV).toHaveLength(2)
+    expect(out.items.TV[0].id).toBe(20)
+  })
+
+  it("uses nested relation cache key to avoid fs directory collisions", async () => {
+    state.query = { user: "CacheKeyUser", includeUpcoming: "true" }
+    loadUserEntriesMock.mockResolvedValueOnce([])
+    prismaAnimeFindManyMock
+      .mockResolvedValueOnce([
+        {
+          id: 2,
+          titleEn: "TV Title",
+          titleRo: "TV Ro",
+          cover: "tv.jpg",
+          format: "TV",
+          averageScore: 80,
+          season: "SPRING",
+          startYear: 2024,
+          startMonth: 1,
+          startDay: 1,
+          episodes: 12,
+        },
+      ])
+    prismaAnimeGenreFindManyMock.mockResolvedValueOnce([{ animeId: 2, name: "Action" }])
+    prismaAnimeTagFindManyMock.mockResolvedValueOnce([
+      { animeId: 2, name: "School", tagId: 1, rank: 80, isAdult: false },
+    ])
+    prismaAnimeRelationFindManyMock.mockResolvedValueOnce([])
+
+    const mod = await import("../server/api/private/recommendation.get")
+    await mod.default({} as any)
+
+    expect(setItemMock).toHaveBeenCalledWith(
+      "anime-relation/v2",
+      expect.any(Array)
+    )
+  })
+})

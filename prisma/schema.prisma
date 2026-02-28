@@ -2,8 +2,7 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider        = "prisma-client-js"
 }
 
 datasource db {
@@ -19,12 +18,27 @@ model Anime {
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
   dataHash      String?
-
+  averageScore  Int?
+  season        String?         
+  seasonYear    Int?
+  episodes      Int?
+  startYear     Int?
+  startMonth    Int?
+  startDay      Int?
+  endYear       Int?
+  endMonth      Int?
+  endDay        Int?       
   relationsTo   AnimeRelation[] @relation("ToAnime")
   relationsFrom AnimeRelation[] @relation("FromAnime")
 
-  genres        AnimeGenre[]    // 👈 NEU
+  genres        AnimeGenre[]    
   tags          AnimeTag[]
+
+  @@index([format])
+  @@index([startYear])
+  @@index([season])
+  @@index([averageScore])
+  @@index([season, startYear])
 }
 
 model AnimeGenre {
@@ -60,7 +74,29 @@ model AnimeRelation {
   to   Anime @relation("ToAnime",   fields: [toId],   references: [id])
 
   @@unique([fromId, toId, relationType])
+  @@index([toId])
+  @@index([relationType])
+  @@index([relationType, fromId, toId])
+}
+model Genre {
+  name String @id
 }
 
+model Tag {
+  id          Int     @id
+  name        String
+  description String
+  category    String
+  rank        Int?
+  isAdult     Boolean
 
+  updatedAt  DateTime @updatedAt
+
+  @@index([name])
+  @@index([category])
+}
+model SyncState {
+  key   String @id
+  value String
+}
 

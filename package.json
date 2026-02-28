@@ -2,21 +2,29 @@
   "name": "anilist-stats",
   "type": "module",
   "private": true,
+  "version": "1.0.0",
   "scripts": {
     "dev": "nuxt dev",
-
     "build": "prisma generate && nuxt build",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:verbose": "vitest run --reporter=verbose",
+    "test:frontend": "vitest --config vitest.frontend.config.ts",
+    "test:frontend:run": "vitest run --config vitest.frontend.config.ts",
+    "test:frontend:verbose": "vitest run --config vitest.frontend.config.ts --reporter=verbose",
+    "test:perf": "vitest run --config vitest.perf.config.ts --reporter=verbose",
+    "test:perf:live": "powershell -NoProfile -Command \"$env:VITEST_PERF_REAL_USER='1'; vitest run --config vitest.perf.config.ts --reporter=verbose\"",
+    "test:all": "npm run test:run && npm run test:frontend:run && npm run test:perf",
     "preview": "nuxt preview",
     "generate": "nuxt generate",
-
     "postinstall": "prisma generate",
-
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:generate": "prisma generate"
   },
   "dependencies": {
-    "@prisma/adapter-better-sqlite3": "^7.2.0",
+    "@libsql/client": "^0.15.15",
+    "@prisma/adapter-libsql": "^7.2.0",
     "@prisma/client": "^7.2.0",
     "@tailwindcss/vite": "^4.1.18",
     "axios": "^1.13.2",
@@ -28,11 +36,15 @@
     "vue-router": "^4.6.4"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
+    "@nuxt/test-utils": "^4.0.0",
     "@types/node": "^25.0.3",
+    "@vue/test-utils": "^2.4.6",
     "autoprefixer": "^10.4.23",
+    "happy-dom": "^20.7.0",
+    "jsdom": "^28.1.0",
     "postcss": "^8.5.6",
     "prisma": "^7.2.0",
-    "tailwindcss": "^4.1.18"
+    "tailwindcss": "^4.1.18",
+    "vitest": "^4.0.18"
   }
 }
